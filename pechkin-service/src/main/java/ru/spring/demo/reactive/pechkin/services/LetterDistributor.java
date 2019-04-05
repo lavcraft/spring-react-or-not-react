@@ -7,11 +7,14 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationStartedEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import ru.spring.demo.reactive.pechkin.producer.LetterProducer;
 import ru.spring.demo.reactive.starter.speed.AdjustmentProperties;
+import ru.spring.demo.reactive.starter.speed.model.Letter;
 
+import java.time.Duration;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -46,21 +49,21 @@ public class LetterDistributor {
 
     @EventListener(ApplicationStartedEvent.class)
     public void init() {
-        try {
-            if(adjustmentProperties.getRequest().get() > 0) {
-//                distribute();
-                counter.increment();
-            } else {
-                TimeUnit.MILLISECONDS.sleep(50);
-            }
-        } catch (Exception e) {
-            log.error("Cannot send letter");
-            try {
-                TimeUnit.MILLISECONDS.sleep(adjustmentProperties.getProcessingTime());
-            } catch (InterruptedException ex) {
-                ex.printStackTrace();
-            }
-        }
+        webClientBuilder.baseUrl("http://localhost:8081/").build()
+                .post().uri("/analyse/letter")
+                .contentType(MediaType.APPLICATION_STREAM_JSON)
+                .accept(MediaType.APPLICATION_STREAM_JSON)
+                .body(
+                        producer.letterFlux()
+                                .doOnNext(letter -> counter.increment())
+                                .log(),
+                        Letter.class
+                )
+                .exchange()
+                .doOnError(throwable -> log.error("Sth went wrong {}", throwable.getMessage()))
+                .retryBackoff(Long.MAX_VALUE, Duration.ofMillis(500))
+                .log()
+                .subscribe(clientResponse -> log.info("clientResponse = " + clientResponse));
     }
 
 }
