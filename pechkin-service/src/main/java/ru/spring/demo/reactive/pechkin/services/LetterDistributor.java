@@ -14,6 +14,7 @@ import ru.spring.demo.reactive.starter.speed.AdjustmentProperties;
 import ru.spring.demo.reactive.starter.speed.model.Letter;
 
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @author Evgeny Borisov
@@ -44,11 +45,16 @@ public class LetterDistributor {
         this.objectMapper = objectMapper;
     }
 
+    @SneakyThrows
     @EventListener(ApplicationStartedEvent.class)
     public void init() {
         while (true) {
-            distribute();
-            counter.increment();
+            if(adjustmentProperties.getRequest().get() > 0) {
+                distribute();
+                counter.increment();
+            } else {
+                TimeUnit.MILLISECONDS.sleep(200);
+            }
 
         }
     }
@@ -56,7 +62,7 @@ public class LetterDistributor {
     @SneakyThrows
     public void distribute() {
         Letter letter = producer.getLetter();
-        log.debug("letter = " + letter);
+        log.info("letter = " + letter);
         sender.send(letter);
         adjustmentProperties.getRequest().getAndDecrement();
     }

@@ -51,9 +51,22 @@ public class LetterController {
         guardRemainingRequest = adjustmentProperties.getRequest();
     }
 
+    @Scheduled(fixedDelay = 100)
+    public void init() {
+        if(workingQueue.size() == 0 && guardRemainingRequest.get() > 0) {
+            letterRequesterService.request(letterProcessorExecutor.getMaximumPoolSize());
+        }
+    }
+
+    @Async("letterProcessorExecutor")
     @PostMapping(consumes = MediaType.APPLICATION_JSON_UTF8_VALUE)
     public void processLetter(@RequestBody Letter letter) {
         DecodedLetter decode = decoder.decode(letter);
+        log.info("decode = " + decode);
+        if(letterProcessorExecutor.getQueue().size() == 0 && guardRemainingRequest.get() > 0) {
+            letterRequesterService.request(letterProcessorExecutor.getMaximumPoolSize());
+            guardRemainingRequest.decrementAndGet();
+        }
 
         guardService.send(decode);
     }
