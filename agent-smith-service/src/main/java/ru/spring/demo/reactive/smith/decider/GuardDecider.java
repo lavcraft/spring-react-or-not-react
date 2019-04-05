@@ -2,6 +2,7 @@ package ru.spring.demo.reactive.smith.decider;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -41,9 +42,52 @@ public class GuardDecider {
     }
 
     public void decide(DecodedLetter notification) {
+        letterProcessorExecutor.execute(new GuardTask(
+                adjustmentProperties,
+                notification,
+                notifier, counter, letterRequesterService, workQueue
+        ));
         makeDecisionAndNotify(notification);
     }
 
+
+    @Slf4j
+    @RequiredArgsConstructor
+    public static class GuardTask implements Runnable {
+        private final AdjustmentProperties    adjustmentProperties;
+        private final DecodedLetter           decodedLetter;
+        private final Notifier                notifier;
+        private final Counter                 counter;
+        private final LetterRequesterService  letterRequesterService;
+        private final BlockingQueue<Runnable> workQueue;
+
+        @SneakyThrows
+        private String getDecision() {
+            TimeUnit.MILLISECONDS.sleep(adjustmentProperties.getProcessingTime());
+            int decision = (int) ((Math.random() * (2)) + 1);
+            if(decision == 1) {
+                return "Nothing";
+            } else {
+                return "Block";
+            }
+        }
+
+        @Override
+        public void run() {
+            String decision = getDecision();
+
+            Notification notification = Notification.builder()
+                    .author(decodedLetter.getAuthor())
+                    .action(decision)
+                    .build();
+
+            notifier.sendNotification(notification);
+            counter.increment();
+            if(workQueue.size() == 0) {
+                letterRequesterService.request(letterRequesterService.getAdjustmentProperties().getLetterProcessorConcurrencyLevel());
+            }
+        }
+    }
 
     @SneakyThrows
     private String getDecision() {
