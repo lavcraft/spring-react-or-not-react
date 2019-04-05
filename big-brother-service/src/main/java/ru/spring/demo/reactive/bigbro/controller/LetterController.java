@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 import org.springframework.http.MediaType;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -22,6 +23,7 @@ import reactor.core.scheduler.Schedulers;
 import ru.spring.demo.reactive.bigbro.services.GuardService;
 import ru.spring.demo.reactive.bigbro.services.LetterDecoder;
 import ru.spring.demo.reactive.starter.speed.AdjustmentProperties;
+import ru.spring.demo.reactive.starter.speed.model.DecodedLetter;
 import ru.spring.demo.reactive.starter.speed.model.Letter;
 import ru.spring.demo.reactive.starter.speed.services.LetterRequesterService;
 
@@ -61,33 +63,24 @@ public class LetterController {
         guardRemainingRequest = adjustmentProperties.getRequest();
     }
 
-//    @Scheduled(fixedDelay = 300)
-//    public void init() {
-//        if(workingQueue.size() == 0) {
-//            letterRequesterService.request(letterProcessorExecutor.getMaximumPoolSize());
-//        }
-//    }
+    @Scheduled(fixedDelay = 300)
+    public void init() {
+        if(workingQueue.size() == 0 && guardRemainingRequest.get() > 0) {
+            letterRequesterService.request(letterProcessorExecutor.getMaximumPoolSize());
+        }
+    }
 
-    //    @Async("letterProcessorExecutor")
-    @PostMapping(consumes = MediaType.APPLICATION_STREAM_JSON_VALUE)
-    public Mono<Void> processLetter(@RequestBody Flux<Letter> letterFlux) {
-        int parallelism = letterProcessorExecutor.getMaximumPoolSize();
-        return letterFlux
-//                .onBackpressureDrop(droppedLetter -> log.info("Drop letter {}", droppedLetter))
-                .doOnRequest(value -> {
-                    if(workingQueue.size() == 0) {
-                        letterRequesterService.request(parallelism);
-                    }
-                })
-                .flatMap(
-                        letter -> Mono.fromCallable(() -> decoder.decode(letter))
-                                .subscribeOn(Schedulers.fromExecutor(letterProcessorExecutor)),
-                        parallelism)
-//                .doOnNext(letter -> decoder.decode(letter))
-                .doOnNext(letter -> counter.increment())
-                .log()
-                .then();
+    @Async("letterProcessorExecutor")
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_UTF8_VALUE)
+    public void processLetter(@RequestBody Letter letter) {
+        DecodedLetter decode = decoder.decode(letter);
+        log.info("decode = " + decode);
+        if(letterProcessorExecutor.getQueue().size() == 0 && guardRemainingRequest.get() > 0) {
+            letterRequesterService.request(letterProcessorExecutor.getMaximumPoolSize());
+            guardRemainingRequest.decrementAndGet();
+        }
 
+        guardService.send(decode);
     }
 
 }
